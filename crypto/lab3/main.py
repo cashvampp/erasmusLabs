@@ -36,6 +36,8 @@ def print_step(step_name, request=None, response=None):
 
 
 
+
+
 #LAME PART
 
 
@@ -138,12 +140,16 @@ print(f"Original message: {message.decode()}")
 # 2. Encrypt the message
 encrypted_message = aes_encrypt_cbc_pkcs7(shared_key, message)
 
+
+
 # 3. Sign the encrypted message
 message_signature = rsa_sign_pss_sha256(actual_private_key, encrypted_message)
 
 # 4. Calculate the MAC
 uco_bytes = int_to_bytes(UCO)
 uco_mac = mac_create_aes_cbc(mac_key, uco_bytes)
+
+
 
 # 5. Send the request
 points_request = {
@@ -168,53 +174,59 @@ print(f"Your current points: {points['points']}")
 
 print("\ncool stuff ...\n")
 
+
+
+
+
 # The leaked information
-leaked_encrypted_msg = bytes.fromhex("116911af5df639774a8cc0badff7068a2d0cdfee53dee0593aed8b08854b48b2")
-original_msg = b"Give 445358 3 p"
+msg = b"Give 445358 3 p"
+msg_encrypted = bytes.fromhex("116911af5df639774a8cc0badff7068a2d0cdfee53dee0593aed8b08854b48b2")
 vashek_uco = 344
-vashek_uco_mac = bytes.fromhex("5c7adf789b5b093889e7cda64a091bc0")
+vashek_uco_mac = bytes.fromhex("5c7adf789b5b093889e7cda64a091bc0")  # MAC of vashek_uco_bytes
 
 
-
-#identify which block contains the UCO
-block_size = 16
-num_blocks = len(leaked_encrypted_msg) // block_size
-
-
-
-
-# Convert leaked message to blocks
-blocks = [leaked_encrypted_msg[i:i+block_size] for i in range(0, len(leaked_encrypted_msg), block_size)]
+# Create a modified version of the encrypted message
+modified_encrypted = bytearray(msg_encrypted)
 
 
 
 
-# Make a copy of the blocks
-modified_blocks = blocks.copy()
+# Identify bytes to modify - Original: "Give 445358 3 p" -> Target: "Give 570943 3 p"
+uco_start = 5  # Position after "Give "
+orig_uco_str = "445358"
+my_uco_str = str(UCO)  # "570943"
+
+print(f"Original message: {msg.decode()}")
+print(f"Target message: Give {UCO} 3 p")
+
+# bit-flipping attack
+for i in range(len(orig_uco_str)):
+    if i < len(my_uco_str):
+        # Position in the encrypted message
+        pos = uco_start + i
+        
+
+        
+        # XOR out the original byte and XOR in the new byte
+        orig_byte = ord(orig_uco_str[i])
+        new_byte = ord(my_uco_str[i])
+        
+
+        # Apply the bit-flipping
+        modified_encrypted[pos] ^= orig_byte ^ new_byte
+        
+        #this just looks cool
+        print(f"Modified byte at position {pos}: {chr(orig_byte)} → {chr(new_byte)}")
 
 
-
-modified_blocks[0] = bytes([
-    blocks[0][i] ^ original_msg[i] ^ ord(f"Give {UCO} 3 p"[i]) 
-    for i in range(len(original_msg))
-])
-
-
-
-# Reassemble modified ciphertext
-modified_encrypted_msg = b''.join(modified_blocks)
-
-
-fake_message = f"Give {UCO} 3 p".encode()
-
-payload_fake = aes_encrypt_cbc_pkcs7(shared_key, fake_message)
+my_signature = rsa_sign_pss_sha256(actual_private_key, modified_encrypted)
 
 
 # Prepare the exploit request
 exploit_request = {
     "mac": vashek_uco_mac.hex(),
-    "payload": payload_fake.hex(),
-    "signature": message_signature.hex(),
+    "payload": modified_encrypted.hex(),
+    "signature": my_signature.hex(),
     "uco": vashek_uco,  
     
 }
@@ -237,7 +249,7 @@ print("Exploit Response:", response)
 
 # Check your points
 status, points = send_get('/hw03/database-server/api/points', {"uco": UCO})
-print(f"Your current points: {points['points']}")
+print(f"Your points: {points['points']}")
 
 
 
@@ -247,7 +259,7 @@ print(f"Your current points: {points['points']}")
 
 
 
-#I drink 'til I'm drunk,
+# I drink 'til I'm drunk,
 # Smoke 'til I'm high 
 # Castle on the hill, wake up in the sky
 # You can't tell me I ain't fly
