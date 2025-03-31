@@ -1,0 +1,12 @@
+apiVersion: v2
+name: pa234-hw3-570943
+version: 6.6.6
+description: A Helm chart for deploying app
+maintainers:
+  - name: Andrii Bezrukov(sad)
+    email: andriykabzz@gmail.com
+appVersion: "6.6.6"
+dependencies:
+  - name: tenant
+    version: "7.0.0"
+    repository: "file://charts/tenant-7.0.0.tgz"

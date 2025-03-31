@@ -1,0 +1,62 @@
+uco: "570943"
+
+tenant:
+  tenant:
+    name: myminio
+    pools:
+      - servers: 1
+        name: pool-0
+        volumesPerServer: 1
+        storageClassName: nfs-csi
+        size: 10Gi
+        resources:
+          limits:
+            cpu: 1
+            memory: 2Gi
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          fsGroupChangePolicy: "OnRootMismatch"
+          runAsNonRoot: true
+        containerSecurityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+          seccompProfile:
+            type: RuntimeDefault
+    buckets:
+      - name: '570943'
+    users:
+      - name: s3-creds
+    certificate:
+      requestAutoCert: false
+s3:
+  access_key: ""
+  secret_key: ""
+  
+host: uco-pa234.dyn.cloud.e-infra.cz
+image: cerit.io/pa234/php:8.2-apache
+ 
+db:
+  instances: 1
+  name: "db-570943"
+  owner: "570943"
+  resources:
+    requests:
+      cpu: 1
+      memory: "4Gi"
+    limits:
+      cpu: 1
+      memory: "4Gi"
+  storage:
+    size: 10Gi
+    storageClass: nfs-csi
+  backup:
+    enable: true
+    path: "s3://570943/"
+    url: "http://minio"

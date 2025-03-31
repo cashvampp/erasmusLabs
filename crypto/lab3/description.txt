@@ -1,0 +1,10 @@
+Main problems with the DATABASE server:
+1. Signature verification: Server verifies signatures using the recipient's public key instead of the sender's public key. This allowed me to forge messages from Vashek by signing with their own key.
+2. MAC: MAC only covers the sender's UCO, and not the entire message, what allowed me succesfully modify the message.
+3. Request reuse: protocol enables us to reuse previously sent requests
+
+Proposed fixes:
+1. Verify signatures using the sender's public key, not the recipient's.
+2. Use MAC to authenticate the entire message, not just the UCO.
+3. Implement nonces/timestamps to prevent replay attacks.
+4. Add proper recipient verification in the authorization logic.

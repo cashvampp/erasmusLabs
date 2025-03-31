@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-php-script
+data:
+  {{ .Values.uco | default "index" }}.php: |-
+    <?php
+    use Aws\S3\S3Client;
+       
+    $AWS_KEY = getenv('AWS_ACCESS_KEY_ID');
+    $AWS_SECRET_KEY = getenv('AWS_SECRET_ACCESS_KEY');
+    $ENDPOINT = getenv('AWS_S3_ENDPOINT') ?: 'http://minio';
+      
+    // require the amazon sdk from your composer vendor dir
+    require __DIR__.'/vendor/autoload.php';
+      
+    // Check if credentials are set
+    if (!$AWS_KEY || !$AWS_SECRET_KEY) {
+        die("AWS credentials are not set in environment variables.\n");
+    }
+      
+    // Instantiate the S3 class and point it at the desired host
+    $client = new S3Client([
+        'region' => 'us-east-1',
+        'version' => '2006-03-01',
+        'endpoint' => $ENDPOINT,
+        'credentials' => [
+            'key' => $AWS_KEY,
+            'secret' => $AWS_SECRET_KEY
+        ],
+        // Set the S3 class to use host/bucket
+        // instead of bucket.host.
+        'use_path_style_endpoint' => true
+    ]);
+      
+    $listResponse = $client->listBuckets();
+    $buckets = $listResponse['Buckets'];
+      
+    foreach ($buckets as $bucket) {
+        echo $bucket['Name'] . "\t" . $bucket['CreationDate'] . "\n";
+    }
