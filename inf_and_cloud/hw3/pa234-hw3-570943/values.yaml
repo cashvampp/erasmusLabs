@@ -1,4 +1,25 @@
 uco: "570943"
+apiVersion: apps/v1
+kind: Deployment
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: 570943-pa234.dyn.cloud.e-infra.cz
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: 570943-tls
+      hosts:
+        - 570943-pa234.dyn.cloud.e-infra.cz
+
+service:
+  port: 80      
 
 tenant:
   tenant:
@@ -36,10 +57,10 @@ tenant:
     certificate:
       requestAutoCert: false
 s3:
-  access_key: ""
-  secret_key: ""
+  access_key: "token-mntmv"
+  secret_key: "8fj9dd6l6xsvd4mw6gbzlrgr2lfhbfq562rqqlt45l7ftcfgbg4l27"
   
-host: uco-pa234.dyn.cloud.e-infra.cz
+host: 570943-pa234.dyn.cloud.e-infra.czs
 image: cerit.io/pa234/php:8.2-apache
  
 db:
@@ -60,3 +81,5 @@ db:
     enable: true
     path: "s3://570943/"
     url: "http://minio"
+
+  

@@ -2,9 +2,7 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "pa234-hw3-570943.fullname" . }}
-  labels:
-    {{- include "pa234-hw3-570943.labels" . | nindent 4 }}
+  name: {{ .Release.Name }}-ingress
   {{- with .Values.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -35,7 +33,7 @@ spec:
             {{- end }}
             backend:
               service:
-                name: {{ include "pa234-hw3-570943.fullname" $ }}
+                name: {{ $.Release.Name }}-service
                 port:
                   number: {{ $.Values.service.port }}
           {{- end }}

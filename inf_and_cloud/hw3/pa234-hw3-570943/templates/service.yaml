@@ -1,15 +1,13 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "pa234-hw3-570943.fullname" . }}
-  labels:
-    {{- include "pa234-hw3-570943.labels" . | nindent 4 }}
+  name: pa234-hw3-570943-service
+  namespace: bezrukov-ns
 spec:
-  type: {{ .Values.service.type }}
-  ports:
-    - port: {{ .Values.service.port }}
-      targetPort: http
-      protocol: TCP
-      name: http
   selector:
-    {{- include "pa234-hw3-570943.selectorLabels" . | nindent 4 }}
+    # Make sure these match the labels on your PHP pod
+    app: pa234-hw3-570943  # Adjust based on your actual pod labels
+  ports:
+    - port: 80
+      targetPort: 80  # Assuming Apache is listening on port 80
+  type: ClusterIP
