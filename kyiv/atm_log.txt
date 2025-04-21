@@ -1,0 +1,4 @@
+2025-04-21 17:16:59 | User: 1 | Operation: Account opened | Account: 7878 | Amount: 108080.0
+2025-04-21 17:17:14 | User: 1 | Operation: Deposit | Account: 7878 | Amount: 1.0
+2025-04-21 17:17:49 | User: 1 | Operation: Withdrawal | Account: 7878 | Amount: 999.0
+2025-04-21 17:17:59 | User: 1 | Operation: Account closed | Account: 7878 | Amount: 107082.0

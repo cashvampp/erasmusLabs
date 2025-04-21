@@ -1,0 +1,49 @@
+--- Game Session ---
+Date: Mon Apr 21 17:03:44 CEST 2025
+Sessions played: 5
+User wins: 3
+Computer wins: 2
+Draws: 0
+User moves:
+1
+0
+2
+0
+1
+2
+0
+1
+
+--- Game Session ---
+Date: Mon Apr 21 17:04:15 CEST 2025
+Sessions played: 9
+User wins: 6
+Computer wins: 3
+Draws: 0
+User moves:
+1
+1
+0
+1
+1
+1
+0
+0
+2
+0
+1
+1
+2
+0
+2
+0
+
+--- Game Session ---
+Date: Mon Apr 21 17:04:26 CEST 2025
+Sessions played: 1
+User wins: 1
+Computer wins: 0
+Draws: 0
+User moves:
+0
+
