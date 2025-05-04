@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Test</title>
+  </head>
+  <body>
+    Image:<br/>
+    <img src="https://www.fi.muni.cz/jvs-2.1/images/fimulogo.png"/><br/>
+    <img src="./secret.png"/><br/>
+    <a href="http://alfa.ex:8888/">Login</a>
+  </body>
+</html>

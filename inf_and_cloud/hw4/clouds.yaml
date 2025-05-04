@@ -1,0 +1,27 @@
+# This is a clouds.yaml file, which can be used by OpenStack tools as a source
+# of configuration on how to connect to a cloud. If this is your only cloud,
+# just put this file in ~/.config/openstack/clouds.yaml and tools like
+# python-openstackclient will just work with no further config. (You will need
+# to add your password to the auth section)
+# If you have more than one cloud account, add the cloud entry to the clouds
+# section of your existing file and you can refer to them by name with
+# OS_CLOUD=openstack or --os-cloud=openstack
+clouds:
+  openstack:
+    
+    auth:
+      
+      auth_url: https://identity.brno.openstack.cloud.e-infra.cz/v3
+      
+      application_credential_id: "5219c9d75eb8419d820d1c7f43b16bfd"
+      application_credential_secret: "iovN5-4BaQUoSRExUy54Z6JU_IiwJ0qjmOu40SEc0pQLjPMQpBHqLha9nJkRPT65MtOeR-063Ahh23Ja6iTFxA"
+    
+      
+        
+    region_name: "Brno1"
+        
+      
+    interface: "public"
+    identity_api_version: 3
+    auth_type: "v3applicationcredential"
+    

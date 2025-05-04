@@ -1,0 +1,39 @@
+﻿<Window
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:av="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="av" x:Class="BlockLinkingApp.MainWindow"
+        Title="Block Linking App" Height="450" Width="800">
+    <Grid>
+
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="200"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+
+        <StackPanel Grid.Column="0" Background="LightGray" Margin="10">
+            <TextBlock Text="blocksss:" FontWeight="Bold" Margin="5"/>
+            <Button Content="Assignment Block" Tag="AssignmentBlock" Click="AddBlockButton_Click" Margin="5"/>
+            <Button Content="Constant Assignment Block" Tag="ConstantAssignmentBlock" Click="AddBlockButton_Click" Margin="5"/>
+            <Button Content="Input Block" Tag="InputBlock" Click="AddBlockButton_Click" Margin="5"/>
+            <Button Content="Print Block" Tag="PrintBlock" Click="AddBlockButton_Click" Margin="5"/>
+            <Button Content="Condition Block (don't use)" Tag="ConditionBlock" Click="AddBlockButton_Click" Margin="5"/>
+            <Button Content="If Block" Tag="if" Click="AddBlockButton_Click" Margin="5"/>
+
+            <Button Content="Save All" Click="SaveAllButton_Click" Margin="5"/>
+            <Button Content="Load All" Click="LoadAllButton_Click" Margin="5"/>
+            <Button Content="Translate into code" Click="TranslateButton_Click" Margin="5"/>
+            <ComboBox x:Name="LanguageComboBox" Width="120" Margin="5"/>
+        </StackPanel>
+
+
+        <Canvas Grid.Column="1" x:Name="WorkspaceCanvas" Background="White" AllowDrop="True" Drop="WorkspaceCanvas_Drop">
+            <Border Canvas.Left="50" Canvas.Top="50" Width="100" Height="50" Background="LightBlue" x:Name="StartBlock">
+                <TextBlock Text="Start" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+            </Border>
+            <Border Canvas.Left="50" Canvas.Top="150" Width="100" Height="50" Background="LightGreen" x:Name="EndBlock">
+                <TextBlock Text="End" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+            </Border>
+        </Canvas>
+    </Grid>
+</Window>
