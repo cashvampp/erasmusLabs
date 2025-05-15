@@ -9,8 +9,6 @@ terraform {
 
 provider "openstack" {}
 
-
-
 variable "vm_name" {
   description = "Name of the virtual machine"
   default = "homework4-vm"
@@ -82,7 +80,7 @@ data "openstack_networking_network_v2" "external" {
 resource "openstack_compute_instance_v2" "vm" {
   name            = var.vm_name
   image_id        = var.image_id
-  flavor_name     = "e1.tiny"
+  flavor_name     = var.flavor_id
   key_pair        = var.key_pair
   security_groups = [openstack_networking_secgroup_v2.sg.name]
 
@@ -99,6 +97,22 @@ resource "openstack_compute_instance_v2" "vm" {
   EOF
 }
 
+# Create a floating IP
+resource "openstack_networking_floatingip_v2" "fip" {
+  pool = var.floating_ip_pool
+}
+
+# Associate floating IP with the instance
+resource "openstack_networking_floatingip_associate_v2" "fip_associate" {
+  floating_ip = openstack_networking_floatingip_v2.fip.address
+  port_id     = openstack_compute_instance_v2.vm.network[0].port
+}
+
 output "internal_ip" {
   value = openstack_compute_instance_v2.vm.access_ip_v4
+}
+
+output "floating_ip" {
+  value = openstack_networking_floatingip_v2.fip.address
+  description = "The public IP address of the instance"
 }

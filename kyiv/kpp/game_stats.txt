@@ -1,0 +1,15 @@
+--- Game Session ---
+Date: Tue May 13 14:17:19 CEST 2025
+Sessions played: 4
+User wins: 2
+Computer wins: 2
+Draws: 0
+User moves:
+1
+2
+0
+1
+0
+2
+1
+

@@ -1,11 +1,12 @@
-#include <arpa/inet.h>
+#include <arpa/inet.h> // Added for inet_ntoa
+#include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
-#include <pthread.h>
-#include <stdbool.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,310 +14,433 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#define HTTP_PORT 80
+#define HTTPS_PORT 443
+#define BUFFER_SIZE 8192
+#define MAX_PATH 256
+#define MAX_CONNECTIONS 10
 
-#define HTTP_PORT 8000
-#define HTTPS_PORT 8443
-#define MAX_REQUEST_SIZE 8192
-#define MAX_PATH_LENGTH 1024
-#define DOCUMENT_ROOT "."
-#define DEFAULT_FILE "index.html"
+// Global SSL context for HTTPS
+SSL_CTX *https_ctx = NULL;
 
-typedef struct {
-        int socket;
-        SSL *ssl;
-        bool use_ssl;
-} client_context;
+// Function prototypes
+void handle_sigint(int sig);
+void url_decode(const char *src, char *dest);
+
+// Function to URL decode
+void url_decode(const char *src, char *dest) {
+    char *dest_ptr = dest;
+    char hex[3] = {0};
+    while (*src) {
+        if (*src == '%' && src[1] && src[2]) {
+            hex[0] = src[1];
+            hex[1] = src[2];
+            *dest_ptr++ = (char)strtol(hex, NULL, 16);
+            src += 3;
+        } else if (*src == '+') {
+            *dest_ptr++ = ' ';
+            src++;
+        } else {
+            *dest_ptr++ = *src++;
+        }
+    }
+    *dest_ptr = '\0'; // Null terminate
+}
 
 // Function to get MIME type based on file extension
-const char *get_mime_type(const char *file_path) {
-    const char *extension = strrchr(file_path, '.');
-    if (extension == NULL) {
+const char *get_mime_type(const char *filename) {
+    const char *ext = strrchr(filename, '.');
+    if (!ext)
         return "application/octet-stream";
-    }
 
-    if (strcmp(extension, ".html") == 0) {
+    // Convert to lowercase for case-insensitive comparison
+    char ext_lower[10];
+    int i = 0;
+    while (ext[i] && i < 9) {
+        ext_lower[i] = tolower(ext[i]);
+        i++;
+    }
+    ext_lower[i] = '\0';
+
+    if (strcmp(ext_lower, ".html") == 0 || strcmp(ext_lower, ".htm") == 0)
         return "text/html";
-    } else if (strcmp(extension, ".jpg") == 0 ||
-               strcmp(extension, ".jpeg") == 0) {
+    if (strcmp(ext_lower, ".txt") == 0)
+        return "text/plain";
+    if (strcmp(ext_lower, ".jpg") == 0 || strcmp(ext_lower, ".jpeg") == 0)
         return "image/jpeg";
-    } else if (strcmp(extension, ".png") == 0) {
+    if (strcmp(ext_lower, ".png") == 0)
         return "image/png";
-    } else if (strcmp(extension, ".css") == 0) {
+    if (strcmp(ext_lower, ".gif") == 0)
+        return "image/gif";
+    if (strcmp(ext_lower, ".css") == 0)
         return "text/css";
-    } else if (strcmp(extension, ".js") == 0) {
+    if (strcmp(ext_lower, ".js") == 0)
         return "application/javascript";
-    } else {
-        return "application/octet-stream";
-    }
+    if (strcmp(ext_lower, ".ico") == 0)
+        return "image/x-icon";
+    if (strcmp(ext_lower, ".svg") == 0)
+        return "image/svg+xml";
+    if (strcmp(ext_lower, ".pdf") == 0)
+        return "application/pdf";
+
+    return "application/octet-stream";
 }
 
-// Function to read or send data safely with SSL support
-ssize_t safe_read(client_context *client, void *buffer, size_t len) {
-    if (client->use_ssl) {
-        return SSL_read(client->ssl, buffer, len);
-    } else {
-        return recv(client->socket, buffer, len, 0);
+// Handler for SIGINT
+void handle_sigint(int sig) {
+    (void)sig; // Suppress unused parameter warning
+    printf("\nShutting down server...\n");
+    if (https_ctx) {
+        SSL_CTX_free(https_ctx);
     }
+    exit(0);
 }
 
-ssize_t safe_write(client_context *client, const void *buffer, size_t len) {
-    if (client->use_ssl) {
-        return SSL_write(client->ssl, buffer, len);
-    } else {
-        return send(client->socket, buffer, len, 0);
-    }
+// Function to create a self-signed certificate
+void create_self_signed_cert() {
+    system("mkdir -p certs");
+    system("openssl req -x509 -newkey rsa:4096 -keyout certs/key.pem -out "
+           "certs/cert.pem -days 365 -nodes -subj '/CN=localhost'");
 }
 
-// Function to handle client connections
-void *handle_client(void *arg) {
-    client_context *client = (client_context *)arg;
-    int client_socket = client->socket;
-    char request[MAX_REQUEST_SIZE] = {0};
-    char response_header[MAX_REQUEST_SIZE] = {0};
-    char file_path[MAX_PATH_LENGTH] = {0};
-    ssize_t bytes_read;
-
-    // Read the HTTP request
-    bytes_read = safe_read(client, request, MAX_REQUEST_SIZE - 1);
-    if (bytes_read <= 0) {
-        goto cleanup;
-    }
-    request[bytes_read] = '\0';
-
-    printf("[Запит]\n%s\n", request);
-
-    // Parse the request line
-    char *request_line = strtok(request, "\r\n");
-    if (request_line == NULL) {
-        goto cleanup;
-    }
-
-    char method[10], uri[MAX_PATH_LENGTH], http_version[10];
-    if (sscanf(request_line, "%9s %1023s %9s", method, uri, http_version) !=
-        3) {
-        goto cleanup;
-    }
-
-    // Handle root URI
-    if (strcmp(uri, "/") == 0) {
-        snprintf(uri, sizeof(uri), "/%s", DEFAULT_FILE);
-    }
-
-    // Construct file path
-    snprintf(file_path, sizeof(file_path), "%s%s", DOCUMENT_ROOT, uri);
-
-    // Try to open the file
-    FILE *file = fopen(file_path, "rb");
-    if (file) {
-        // Get file size
-        fseek(file, 0, SEEK_END);
-        long file_size = ftell(file);
-        fseek(file, 0, SEEK_SET);
-
-        // Get content type
-        const char *content_type = get_mime_type(file_path);
-
-        // Create HTTP response header
-        sprintf(response_header,
-                "HTTP/1.1 200 OK\r\n"
-                "Content-Type: %s\r\n"
-                "Content-Length: %ld\r\n"
-                "Connection: close\r\n"
-                "\r\n",
-                content_type, file_size);
-
-        // Send the header
-        safe_write(client, response_header, strlen(response_header));
-
-        // Send the file content
-        char buffer[4096];
-        size_t bytes_read;
-        while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
-            safe_write(client, buffer, bytes_read);
-        }
-
-        fclose(file);
-    } else {
-        // File not found - send 404
-        const char *not_found = "<h1>404 Not Found</h1>";
-        sprintf(response_header,
-                "HTTP/1.1 404 Not Found\r\n"
-                "Content-Type: text/html\r\n"
-                "Content-Length: %zu\r\n"
-                "Connection: close\r\n"
-                "\r\n",
-                strlen(not_found));
-
-        safe_write(client, response_header, strlen(response_header));
-        safe_write(client, not_found, strlen(not_found));
-    }
-
-cleanup:
-    if (client->use_ssl) {
-        SSL_shutdown(client->ssl);
-        SSL_free(client->ssl);
-    }
-    close(client_socket);
-    free(client);
-    pthread_detach(pthread_self());
-    return NULL;
-}
-
-// Initialize SSL context
-SSL_CTX *create_ssl_context() {
+// Function to initialize HTTPS SSL context
+SSL_CTX *init_ssl_context() {
     SSL_CTX *ctx;
 
-    // Initialize the SSL library
+    // Initialize OpenSSL
     SSL_library_init();
     OpenSSL_add_all_algorithms();
     SSL_load_error_strings();
 
     // Create SSL context
-    const SSL_METHOD *method = TLS_server_method();
-    ctx = SSL_CTX_new(method);
-    if (ctx == NULL) {
-        ERR_print_errors_fp(stderr);
-        exit(EXIT_FAILURE);
+    ctx = SSL_CTX_new(TLS_server_method());
+    if (!ctx) {
+        perror("Error creating SSL context");
+        exit(1);
     }
 
     // Load certificate and private key
-    if (SSL_CTX_use_certificate_file(ctx, "cert.pem", SSL_FILETYPE_PEM) <= 0) {
+    if (SSL_CTX_use_certificate_file(ctx, "certs/cert.pem", SSL_FILETYPE_PEM) <=
+        0) {
         ERR_print_errors_fp(stderr);
-        exit(EXIT_FAILURE);
+        exit(1);
     }
 
-    if (SSL_CTX_use_PrivateKey_file(ctx, "key.pem", SSL_FILETYPE_PEM) <= 0) {
+    if (SSL_CTX_use_PrivateKey_file(ctx, "certs/key.pem", SSL_FILETYPE_PEM) <=
+        0) {
         ERR_print_errors_fp(stderr);
-        exit(EXIT_FAILURE);
+        exit(1);
     }
 
     // Verify private key
     if (!SSL_CTX_check_private_key(ctx)) {
         fprintf(stderr, "Private key does not match the certificate\n");
-        exit(EXIT_FAILURE);
+        exit(1);
     }
 
     return ctx;
 }
 
-// Function to start server (HTTP or HTTPS)
-void *start_server(void *arg) {
-    int port = *(int *)arg;
-    bool use_https = (port == HTTPS_PORT);
+// Function to send HTTP error response
+void send_error_response(int client_socket, int error_code, SSL *ssl,
+                         int is_https) {
+    char response[BUFFER_SIZE];
+    const char *error_message;
 
-    SSL_CTX *ssl_ctx = NULL;
-    if (use_https) {
-        ssl_ctx = create_ssl_context();
+    switch (error_code) {
+    case 404:
+        error_message = "Not Found";
+        break;
+    case 500:
+        error_message = "Internal Server Error";
+        break;
+    default:
+        error_message = "Unknown Error";
     }
+
+    snprintf(response, sizeof(response),
+             "HTTP/1.1 %d %s\r\n"
+             "Content-Type: text/html\r\n"
+             "Connection: close\r\n\r\n"
+             "<html><body><h1>%d %s</h1></body></html>",
+             error_code, error_message, error_code, error_message);
+
+    if (is_https) {
+        SSL_write(ssl, response, strlen(response));
+    } else {
+        write(client_socket, response, strlen(response));
+    }
+}
+
+// Improved function to send file contents using low-level file operations
+int send_file(int client_socket, const char *filepath, SSL *ssl, int is_https) {
+    int file_fd = open(filepath, O_RDONLY);
+    if (file_fd < 0) {
+        perror("Error opening file");
+        send_error_response(client_socket, 404, ssl, is_https);
+        return -1;
+    }
+
+    // Get file size
+    struct stat file_stat;
+    if (fstat(file_fd, &file_stat) < 0) {
+        perror("Error getting file stats");
+        close(file_fd);
+        send_error_response(client_socket, 500, ssl, is_https);
+        return -1;
+    }
+
+    // Prepare HTTP headers
+    char headers[BUFFER_SIZE];
+    const char *mime_type = get_mime_type(filepath);
+    snprintf(headers, sizeof(headers),
+             "HTTP/1.1 200 OK\r\n"
+             "Content-Type: %s\r\n"
+             "Content-Length: %ld\r\n"
+             "Connection: close\r\n\r\n",
+             mime_type, file_stat.st_size);
+
+    // Send headers
+    if (is_https) {
+        SSL_write(ssl, headers, strlen(headers));
+    } else {
+        write(client_socket, headers, strlen(headers));
+    }
+
+    // Send file contents in binary mode
+    unsigned char buffer[BUFFER_SIZE];
+    ssize_t bytes_read;
+    while ((bytes_read = read(file_fd, buffer, sizeof(buffer))) > 0) {
+        if (is_https) {
+            if (SSL_write(ssl, buffer, bytes_read) <= 0) {
+                perror("Error writing to SSL socket");
+                break;
+            }
+        } else {
+            if (write(client_socket, buffer, bytes_read) <= 0) {
+                perror("Error writing to socket");
+                break;
+            }
+        }
+    }
+
+    close(file_fd);
+    return 0;
+}
+
+// Function to handle a single client connection
+void handle_client(int client_socket, SSL *ssl, int is_https) {
+    char buffer[BUFFER_SIZE];
+    ssize_t bytes_received;
+
+    // Read request
+    if (is_https) {
+        bytes_received = SSL_read(ssl, buffer, sizeof(buffer) - 1);
+    } else {
+        bytes_received = read(client_socket, buffer, sizeof(buffer) - 1);
+    }
+
+    if (bytes_received <= 0) {
+        perror("Error reading from socket");
+        if (is_https) {
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
+        }
+        close(client_socket);
+        return;
+    }
+
+    buffer[bytes_received] = '\0';
+
+    // Parse request line
+    char method[16], uri[256], http_version[16];
+    if (sscanf(buffer, "%15s %255s %15s", method, uri, http_version) != 3) {
+        send_error_response(client_socket, 400, ssl, is_https);
+        if (is_https) {
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
+        }
+        close(client_socket);
+        return;
+    }
+
+    // Print request info for debugging
+    struct sockaddr_in addr;
+    socklen_t addr_len = sizeof(addr);
+    getpeername(client_socket, (struct sockaddr *)&addr, &addr_len);
+    char *client_ip = inet_ntoa(addr.sin_addr); // Fixed type issue here
+    printf("[%s] %s %s %s\n", client_ip, method, uri, http_version);
+
+    // URL decode for handling spaces and special characters
+    char decoded_uri[MAX_PATH];
+    url_decode(uri, decoded_uri);
+
+    // Decode URI and create filepath
+    char filepath[MAX_PATH] = "."; // Start from current directory
+
+    // Handle root path
+    if (strcmp(decoded_uri, "/") == 0) {
+        strcat(filepath, "/index.html");
+    } else {
+        // Remove leading slash and append to path
+        if (decoded_uri[0] == '/') {
+            // If URI starts with /, add it properly to avoid double slashes
+            strcat(filepath, decoded_uri);
+        } else {
+            // If URI doesn't start with /, add a slash before it
+            strcat(filepath, "/");
+            strcat(filepath, decoded_uri);
+        }
+    }
+
+    // Print the file being accessed for debugging
+    printf("Accessing file: %s\n", filepath);
+
+    // Check if file exists and serve it
+    if (access(filepath, F_OK) == 0) {
+        send_file(client_socket, filepath, ssl, is_https);
+    } else {
+        printf("File not found: %s\n", filepath);
+        send_error_response(client_socket, 404, ssl, is_https);
+    }
+
+    // Clean up HTTPS connection
+    if (is_https) {
+        SSL_shutdown(ssl);
+        SSL_free(ssl);
+    }
+    close(client_socket);
+}
+
+// Function to create and bind socket
+int create_server_socket(int port) {
+    int server_socket;
+    struct sockaddr_in server_addr;
 
     // Create socket
-    int server_socket = socket(AF_INET, SOCK_STREAM, 0);
+    server_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (server_socket < 0) {
-        perror("Socket creation failed");
-        exit(EXIT_FAILURE);
+        perror("Error creating socket");
+        exit(1);
     }
 
-    // Set socket options
-    int opt = 1;
-    if (setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) <
-        0) {
-        perror("setsockopt failed");
-        exit(EXIT_FAILURE);
+    // Allow socket reuse
+    int reuse = 1;
+    if (setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &reuse,
+                   sizeof(reuse)) < 0) {
+        perror("Error setting socket option");
+        exit(1);
     }
 
-    // Configure server address
-    struct sockaddr_in server_addr;
+    // Bind socket
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(port);
 
-    // Bind socket
     if (bind(server_socket, (struct sockaddr *)&server_addr,
              sizeof(server_addr)) < 0) {
-        perror("Binding failed");
-        exit(EXIT_FAILURE);
+        perror("Error binding socket");
+        exit(1);
     }
 
     // Listen for connections
-    if (listen(server_socket, SOMAXCONN) < 0) {
-        perror("Listen failed");
-        exit(EXIT_FAILURE);
+    if (listen(server_socket, MAX_CONNECTIONS) < 0) {
+        perror("Error listening");
+        exit(1);
     }
 
-    printf("%s сервер слухає на порті %d\n", use_https ? "HTTPS" : "HTTP",
-           port);
-
-    // Accept connections in a loop
-    while (1) {
-        struct sockaddr_in client_addr;
-        socklen_t client_len = sizeof(client_addr);
-
-        int client_socket =
-            accept(server_socket, (struct sockaddr *)&client_addr, &client_len);
-        if (client_socket < 0) {
-            perror("Accept failed");
-            continue;
-        }
-
-        // Create client context
-        client_context *client = malloc(sizeof(client_context));
-        if (!client) {
-            close(client_socket);
-            continue;
-        }
-
-        client->socket = client_socket;
-        client->use_ssl = use_https;
-        client->ssl = NULL;
-
-        if (use_https) {
-            // Set up SSL connection
-            client->ssl = SSL_new(ssl_ctx);
-            SSL_set_fd(client->ssl, client_socket);
-
-            if (SSL_accept(client->ssl) <= 0) {
-                ERR_print_errors_fp(stderr);
-                SSL_free(client->ssl);
-                close(client_socket);
-                free(client);
-                continue;
-            }
-        }
-
-        // Create a thread to handle the client
-        pthread_t client_thread;
-        if (pthread_create(&client_thread, NULL, handle_client, client) != 0) {
-            perror("Thread creation failed");
-            if (use_https) {
-                SSL_free(client->ssl);
-            }
-            close(client_socket);
-            free(client);
-        }
-    }
-
-    // Clean up (this code is unreachable in the current implementation)
-    if (use_https) {
-        SSL_CTX_free(ssl_ctx);
-    }
-    close(server_socket);
-    return NULL;
+    return server_socket;
 }
 
 int main() {
-    pthread_t http_thread, https_thread;
-    int http_port = HTTP_PORT;
-    int https_port = HTTPS_PORT;
+    int http_socket, https_socket;
+    fd_set read_fds;
 
-    // Start HTTP server in a separate thread
-    if (pthread_create(&http_thread, NULL, start_server, &http_port) != 0) {
-        perror("HTTP thread creation failed");
-        exit(EXIT_FAILURE);
+    // Handle Ctrl+C gracefully
+    signal(SIGINT, handle_sigint);
+
+    // Create self-signed certificate if not exists
+    create_self_signed_cert();
+
+    // Initialize HTTPS SSL context
+    https_ctx = init_ssl_context();
+
+    // Create HTTP and HTTPS sockets
+    http_socket = create_server_socket(HTTP_PORT);
+    https_socket = create_server_socket(HTTPS_PORT);
+
+    printf("Web server running...\n");
+    printf("HTTP server listening on port %d\n", HTTP_PORT);
+    printf("HTTPS server listening on port %d\n", HTTPS_PORT);
+    printf("Document root: %s\n", getcwd(NULL, 0));
+    printf("Press Ctrl+C to stop server\n\n");
+
+    // Main server loop
+    while (1) {
+        FD_ZERO(&read_fds);
+        FD_SET(http_socket, &read_fds);
+        FD_SET(https_socket, &read_fds);
+        int max_fd = (http_socket > https_socket) ? http_socket : https_socket;
+
+        // Wait for incoming connections
+        if (select(max_fd + 1, &read_fds, NULL, NULL, NULL) < 0) {
+            if (errno == EINTR) {
+                // Interrupted by signal, check if we should exit
+                continue;
+            }
+            perror("Error in select");
+            continue;
+        }
+
+        // Handle HTTP connection
+        if (FD_ISSET(http_socket, &read_fds)) {
+            struct sockaddr_in client_addr;
+            socklen_t client_addr_len = sizeof(client_addr);
+            int client_socket = accept(
+                http_socket, (struct sockaddr *)&client_addr, &client_addr_len);
+
+            if (client_socket < 0) {
+                perror("Error accepting HTTP connection");
+                continue;
+            }
+
+            handle_client(client_socket, NULL, 0);
+        }
+
+        // Handle HTTPS connection
+        if (FD_ISSET(https_socket, &read_fds)) {
+            struct sockaddr_in client_addr;
+            socklen_t client_addr_len = sizeof(client_addr);
+            int client_socket =
+                accept(https_socket, (struct sockaddr *)&client_addr,
+                       &client_addr_len);
+
+            if (client_socket < 0) {
+                perror("Error accepting HTTPS connection");
+                continue;
+            }
+
+            // Create SSL connection
+            SSL *ssl = SSL_new(https_ctx);
+            SSL_set_fd(ssl, client_socket);
+
+            // Perform SSL handshake
+            if (SSL_accept(ssl) <= 0) {
+                ERR_print_errors_fp(stderr);
+                close(client_socket);
+                SSL_free(ssl);
+                continue;
+            }
+
+            handle_client(client_socket, ssl, 1);
+        }
     }
 
-    // Start HTTPS server in the main thread
-    start_server(&https_port);
+    // Clean up
+    close(http_socket);
+    close(https_socket);
+    SSL_CTX_free(https_ctx);
 
     return 0;
 }
